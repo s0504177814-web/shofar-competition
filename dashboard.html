@@ -121,7 +121,7 @@ const SUPABASE_KEY="sb_publishable_Hzodh7O_ZKPmZtwq2EbRmg_2fSP4ih8";
 const ADMIN_EMAIL="s0504177814@gmail.com";
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 const $=id=>document.getElementById(id);
-function israelToday(){return new Date().toLocaleDateString("sv-SE",{timeZone:"Asia/Jerusalem"})}\nlet reps=[], current={mode:"day",date:israelToday(),start:null,end:null}, settings={}, daily={}, subscriptions=[];
+let reps=[], current={mode:"day",date:new Date().toISOString().slice(0,10),start:null,end:null}, settings={}, daily={}, subscriptions=[];
 
 function money(n){return new Intl.NumberFormat("he-IL",{style:"currency",currency:"ILS",maximumFractionDigits:0}).format(Number(n)||0)}
 function toast(msg){const t=$("toast");t.textContent=msg;t.style.display="block";setTimeout(()=>t.style.display="none",2500)}
