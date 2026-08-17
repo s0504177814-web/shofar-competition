@@ -286,14 +286,26 @@ async function renderSales(){
 }).join("");
 }
 async function syncAutomaticBonusEvents(rep,date,totalAmount){
- const target=Math.max(1,Number(rep.personal_target)||Number(settings.shofar_price)||3600);
- const completed=Math.floor((Number(totalAmount)||0)/target);
+ const shofarPrice=Math.max(1,Number(settings.shofar_price)||3600);
+ const {data:donations,error:donErr}=await sb.from("donation_events")
+   .select("donation_type,amount,installments,total_amount")
+   .eq("donation_date",date).eq("representative_id",rep.id);
+ if(donErr){console.error(donErr);return}
+ const completed=(donations||[]).reduce((sum,don)=>{
+   const donationTotal=don.donation_type==="recurring"
+     ? Number(don.total_amount||((Number(don.amount)||0)*(Number(don.installments)||1)))
+     : Number(don.amount||0);
+   return sum+Math.floor(Math.max(0,donationTotal)/shofarPrice);
+ },0);
  const b1c=Math.max(1,Number(settings.bonus_level_1_count)||2),b1a=Math.max(0,Number(settings.bonus_level_1_amount)||0);
  const b2c=Math.max(b1c+1,Number(settings.bonus_level_2_count)||3),b2a=Math.max(0,Number(settings.bonus_level_2_amount)||0);
- const rows=[];
- if(completed>=b1c)rows.push({bonus_date:date,representative_id:rep.id,representative_name:rep.name,amount:b1a,note:`השלימה ${b1c} יעדים אישיים`,source:'automatic',bonus_key:`level1-${b1c}`});
- if(completed>=b2c)rows.push({bonus_date:date,representative_id:rep.id,representative_name:rep.name,amount:b2a,note:`השלימה ${b2c} יעדים אישיים`,source:'automatic',bonus_key:`level2-${b2c}`});
- for(const row of rows){const r=await sb.from('bonus_events').upsert(row,{onConflict:'bonus_date,representative_id,bonus_key',ignoreDuplicates:true});if(r.error)console.error(r.error)}
+ const desired=[];
+ if(completed>=b1c)desired.push({bonus_date:date,representative_id:rep.id,representative_name:rep.name,amount:b1a,note:`השלימה ${b1c} שופרות`,source:"automatic",bonus_key:`level1-${b1c}`});
+ if(completed>=b2c)desired.push({bonus_date:date,representative_id:rep.id,representative_name:rep.name,amount:b2a,note:`השלימה ${b2c} שופרות`,source:"automatic",bonus_key:`level2-${b2c}`});
+ const wanted=new Set(desired.map(x=>x.bonus_key));
+ const {data:existing}=await sb.from("bonus_events").select("id,bonus_key").eq("bonus_date",date).eq("representative_id",rep.id).eq("source","automatic");
+ for(const x of (existing||[]))if(x.bonus_key&&!wanted.has(x.bonus_key))await sb.from("bonus_events").delete().eq("id",x.id);
+ for(const row of desired){const r=await sb.from("bonus_events").upsert(row,{onConflict:"bonus_date,representative_id,bonus_key"});if(r.error)console.error(r.error)}
 }
 async function sendDonationPopup(rep,type,amount,installments){
  const recurring=type==="recurring";
@@ -545,23 +557,17 @@ function previewAudio(url){
  localPreviewAudio.play().catch(e=>toast("הדפדפן חסם את ההשמעה המקומית"));
 }
 async function playAudio(id){
- const {data:f,error}=await sb.from("audio_files").select("*").eq("id",id).single();if(error||!f)return toast("הקובץ לא נמצא");
- const volume=Math.max(0,Math.min(1,Number($("audioVolume").value))),loop=$("audioLoop").value==="true";
- const r=await sb.from("audio_events").insert({audio_file_id:f.id,audio_name:f.name,file_url:f.file_url,action:"play",volume,loop});
- if(r.error)return toast(r.error.message);toast("השמע נשלח לפלזמה");
-}
-async function stopAudio(){const r=await sb.from("audio_events").insert({action:"stop",volume:1,loop:false});if(r.error)return toast(r.error.message);toast("השמע נעצר");}
-async function removeAudio(id){
- if(!confirm("להסיר את קובץ השמע?"))return;
  const {data:f,error:readErr}=await sb.from("audio_files").select("*").eq("id",id).maybeSingle();
- if(readErr)return toast("שגיאה בקריאת הקובץ: "+readErr.message);
- const del=await sb.from("audio_files").delete().eq("id",id);
- if(del.error)return toast("שגיאה בהסרת הקובץ: "+del.error.message);
- if(f?.storage_path){
-   const st=await sb.storage.from("shofar-audio").remove([f.storage_path]);
-   if(st.error)console.warn("storage remove:",st.error.message);
- }
- await loadAudio();toast("קובץ השמע הוסר");
+ if(readErr||!f)return toast(readErr?.message||"קובץ השמע לא נמצא");
+ const volume=Math.max(0,Math.min(1,Number($("audioVolume").value)||1)),loop=!!$("audioLoop").checked;
+ const {error}=await sb.from("audio_events").insert({audio_file_id:f.id,audio_name:f.name,file_url:f.file_url,action:"play",volume,loop});
+ if(error)return toast("שגיאה בשליחה לפלזמה: "+error.message);
+ toast("השיר נשלח לפלזמה");
+}
+async function stopAudio(){
+ const {error}=await sb.from("audio_events").insert({action:"stop",volume:1,loop:false});
+ if(error)return toast("שגיאה בעצירת השמע: "+error.message);
+ toast("נשלחה עצירה לפלזמה");
 }
 async function uploadGallery(){
  const files=[...$("galleryFiles").files];if(!files.length)return toast("בחר תמונה אחת או יותר");
